@@ -1,8 +1,18 @@
 module Main where
-
-import qualified MyLib (someFunc)
+import           Bot                (pingpongExample)
+import           Data.Aeson         (eitherDecodeFileStrict)
+import           Data.Maybe         (fromMaybe, listToMaybe)
+import           Data.Types.App     (runAppM)
+import           Data.Types.Env     (mkEnv)
+import           Data.Types.Error   (showAppError)
+import           System.Environment (getArgs)
 
 main :: IO ()
 main = do
-  putStrLn "Hello, Haskell!"
-  MyLib.someFunc
+  args <- getArgs
+  fEnv <- eitherDecodeFileStrict . fromMaybe defaultConfigPath $ listToMaybe args
+  env  <- either fail mkEnv fEnv
+  e    <- runAppM env pingpongExample
+  either (fail . showAppError) pure e
+  where
+    defaultConfigPath = "./config.json"

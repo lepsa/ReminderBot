@@ -1,0 +1,6 @@
+{
+  "clientId" : "<CLIENT ID>",
+  "clientSecret" : "<CLIENT SECRET>",
+  "botToken" : "<BOT TOKEN>",
+  "databaseName" : "ReminderBot.sqlite3"
+}

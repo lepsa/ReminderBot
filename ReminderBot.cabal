@@ -13,32 +13,74 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
+common extensions
+    default-extensions: DataKinds
+                      , OverloadedRecordDot
+                      , OverloadedStrings
+                      , DuplicateRecordFields
+                      , GeneralisedNewtypeDeriving
+                      , ScopedTypeVariables
+                      , ConstraintKinds
+                      , CPP
+                      , TemplateHaskell
+
+common threads
+    ghc-options: -threaded
+                 -rtsopts
+                 -with-rtsopts=-N
+
 common warnings
     ghc-options: -Wall
 
+common depends
+    build-depends:    base ^>=4.19.1.0
+                    , discord-haskell
+                    , text
+                    , unliftio
+                    , sqlite-simple
+                    , mtl
+                    , transformers
+                    , containers
+                    , lens
+                    , aeson
+                    , bytestring
+                    , directory
+                    , filepath
+                    , time
+                    , uuid
+
 library
     import:           warnings
-    exposed-modules:  MyLib
+    import:           depends
+    import:           threads
+    import:           extensions
+    exposed-modules:  Bot
+                    , Data.Types.Env
+                    , Data.Types.App
+                    , Data.Types.Error
     -- other-modules:
     -- other-extensions:
-    build-depends:    base ^>=4.19.1.0
     hs-source-dirs:   src
     default-language: GHC2021
 
 executable ReminderBot
     import:           warnings
+    import:           threads
+    import:           extensions
     main-is:          Main.hs
     -- other-modules:
     -- other-extensions:
     build-depends:
         base ^>=4.19.1.0,
-        ReminderBot
+        ReminderBot,
+        aeson
 
     hs-source-dirs:   app
     default-language: GHC2021
 
 test-suite ReminderBot-test
     import:           warnings
+    import:           extensions
     default-language: GHC2021
     -- other-modules:
     -- other-extensions:
