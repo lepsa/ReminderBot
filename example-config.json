@@ -1,6 +1,7 @@
 {
   "clientId" : "<CLIENT ID>",
   "clientSecret" : "<CLIENT SECRET>",
+  "publicKey" : "<PUBLIC KEY>",
   "botToken" : "<BOT TOKEN>",
   "databaseName" : "ReminderBot.sqlite3"
 }

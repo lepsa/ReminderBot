@@ -36,7 +36,6 @@ common depends
     build-depends:    base ^>=4.19.1.0
                     , discord-haskell
                     , text
-                    , unliftio
                     , sqlite-simple
                     , mtl
                     , transformers
