@@ -51,9 +51,9 @@ common depends
 library
     import:           warnings
     import:           depends
-    import:           threads
     import:           extensions
     exposed-modules:  Bot
+                    , Bot.Commands
                     , Data.Types.Env
                     , Data.Types.App
                     , Data.Types.Error

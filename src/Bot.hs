@@ -19,6 +19,7 @@ import qualified Discord.Requests                   as R
 import           Discord.Types
 import Data.Traversable
 import Data.Foldable
+import Bot.Commands
 
 type DiscordM c = ReaderT c DiscordHandler
 runDiscordM :: c -> DiscordM c a -> DiscordHandler a
@@ -32,24 +33,13 @@ pingpongExample = do
   c <- ask
   userFacingError <- liftIO $ runDiscord $ def
     { discordToken = "Bot " <> cId
-    , discordOnEvent = runDiscordM c . eventHandler
+    , discordOnEvent = runDiscordM c . eventHandler c
     , discordOnLog = \s -> TIO.putStrLn s >> TIO.putStrLn ""
     } -- if you see OnLog error, post in the discord / open an issue
 
   liftIO $ TIO.putStrLn userFacingError
   -- userFacingError is an unrecoverable error
   -- put normal 'cleanup' code in discordOnEnd (see examples)
-
-eventHandler :: Event -> DiscordM c ()
-eventHandler event = case event of
-  MessageCreate m -> lift $ when (isPing m && not (fromBot m)) $ do
-    void $ restCall (R.CreateReaction (messageChannelId m, messageId m) "eyes")
-    liftIO $ threadDelay (2 * 10^6)
-    void $ restCall (R.CreateMessage (messageChannelId m) "Pong!")
-    -- Only sent on initial startup, set up commands and the like here
-  Ready apiVersion user guilds sessionId resumeGatewayUrl shard (PartialApplication appId _) -> lift $ onReady appId $ idOnceAvailable <$> guilds
-  InteractionCreate i -> lift $ onInteractionCreate i
-  _ -> return ()
 
 fromBot :: Message -> Bool
 fromBot = userIsBot . messageAuthor
@@ -60,79 +50,68 @@ isPing = ("ping" `T.isPrefixOf`) . T.toLower . messageContent
 registerCommands :: DiscordM c ()
 registerCommands = pure ()
 
-data SlashCommand = SlashCommand
-  { name         :: Text
-  , registration :: Maybe CreateApplicationCommand
-  , handler      :: Interaction -> Maybe OptionsData -> DiscordHandler ()
-  }
-
-mySlashCommands :: [SlashCommand]
-mySlashCommands = [ping]
-
-ping :: SlashCommand
-ping = SlashCommand
-  { name = "ping"
-  , registration = createChatInput "ping" "responds pong"
-  , handler = \intr _options ->
-      void . restCall $
-        R.CreateInteractionResponse
-          (interactionId intr)
-          (interactionToken intr)
-          (interactionResponseBasic  "pong")
-  }
-
 echo :: MonadIO m => Text -> m ()
 echo = liftIO . TIO.putStrLn
 
 showT :: Show a => a -> Text
 showT = T.pack . show
 
-onReady :: ApplicationId -> [GuildId] -> DiscordHandler ()
-onReady appId guilds = do
-  echo "Bot ready!"
-  appCmdRegistrations <- for guilds $ \guild -> do
-    l <- traverse (tryRegistering guild) mySlashCommands
-    pure (guild, l)
 
-  for_ appCmdRegistrations $ \(guild, appCmdRegistrations') ->
-    case sequence appCmdRegistrations' of
-      Left err ->
-        echo $ "[!] Failed to register some commands" <> showT err
-      Right cmds -> do
-        echo $ "Registered " <> showT (length cmds) <> " command(s)."
-        unregisterOutdatedCmds guild cmds
-
+eventHandler :: HasEnv c => c -> Event -> DiscordM c ()
+eventHandler c event = case event of
+  MessageCreate m -> lift $ when (isPing m && not (fromBot m)) $ do
+    void $ restCall (R.CreateReaction (messageChannelId m, messageId m) "eyes")
+    liftIO $ threadDelay (2 * 1_000_000)
+    void $ restCall (R.CreateMessage (messageChannelId m) "Pong!")
+    -- Only sent on initial startup, set up commands and the like here
+  Ready _apiVersion _user guilds _sessionId _resumeGatewayUrl _shard (PartialApplication appId _) ->
+    lift $ onReady appId $ idOnceAvailable <$> guilds
+  InteractionCreate i -> lift $ onInteractionCreate i
+  _ -> return ()
   where
-  tryRegistering guild cmd = case registration cmd of
-    Just reg -> restCall $ R.CreateGuildApplicationCommand appId guild reg
-    Nothing  -> pure . Left $ RestCallErrorCode 0 "" ""
+    commands :: [SlashCommand]
+    commands = ($ c) <$> slashCommands
 
-  unregisterOutdatedCmds guild validCmds = do
-    registered <- restCall $ R.GetGuildApplicationCommands appId guild
-    case registered of
-      Left err -> echo $ "Failed to get registered slash commands: " <> showT err
-      Right cmds ->
-        let validIds    = applicationCommandId <$> validCmds
-            outdatedIds = filter (`notElem` validIds)
-                        $ applicationCommandId <$> cmds
-         in forM_ outdatedIds $
-              restCall . R.DeleteGuildApplicationCommand appId guild
+    onReady :: ApplicationId -> [GuildId] -> DiscordHandler ()
+    onReady appId guilds = do
+      echo "Bot ready!"
+      guildCmdRegistrations <- for guilds $ \guild -> do
+        (guild, ) <$> traverse (tryRegistering guild) commands
+      for_ guildCmdRegistrations $ \(guild, appCmdRegistrations) ->
+        case sequence appCmdRegistrations of
+          Left err ->
+            echo $ "[!] Failed to register some commands" <> showT err
+          Right cmds -> do
+            echo $ "Registered " <> showT (length cmds) <> " command(s)."
+            unregisterOutdatedCmds guild cmds
+      where
+      tryRegistering guild cmd = case registration cmd of
+        Just reg -> restCall $ R.CreateGuildApplicationCommand appId guild reg
+        Nothing  -> pure . Left $ RestCallErrorCode 0 "" ""
 
+      unregisterOutdatedCmds guild validCmds = do
+        registered <- restCall $ R.GetGuildApplicationCommands appId guild
+        case registered of
+          Left err -> echo $ "Failed to get registered slash commands: " <> showT err
+          Right cmds ->
+            let validIds    = applicationCommandId <$> validCmds
+                outdatedIds = filter (`notElem` validIds)
+                            $ applicationCommandId <$> cmds
+             in for_ outdatedIds $ restCall . R.DeleteGuildApplicationCommand appId guild
 
-onInteractionCreate :: Interaction -> DiscordHandler ()
-onInteractionCreate cmd = case cmd of
-  InteractionPing iId _aid tok _v _perms -> void $ restCall $
-    RI.CreateInteractionResponse iId tok InteractionResponsePong
-  InteractionApplicationCommand
-    { applicationCommandData = input@ApplicationCommandDataChatInput {} } ->
-      case
-        find (\c -> applicationCommandDataName input == name c) mySlashCommands
-      of
-        Just found ->
-          handler found cmd (optionsData input)
-
-        Nothing ->
-          echo "Somehow got unknown slash command (registrations out of date?)"
-  _ ->
-    pure () -- Unexpected/unsupported interaction type
+    onInteractionCreate :: Interaction -> DiscordHandler ()
+    onInteractionCreate cmd = case cmd of
+      InteractionPing iId _aid tok _v _perms -> void $ restCall $
+        RI.CreateInteractionResponse iId tok InteractionResponsePong
+      InteractionApplicationCommand
+        { applicationCommandData = input@ApplicationCommandDataChatInput {} } ->
+          case
+            find (\sc -> applicationCommandDataName input == name sc) commands
+          of
+            Just found ->
+              handler found cmd (optionsData input)
+            Nothing ->
+              echo "Somehow got unknown slash command (registrations out of date?)"
+      _ ->
+        pure () -- Unexpected/unsupported interaction type
 
