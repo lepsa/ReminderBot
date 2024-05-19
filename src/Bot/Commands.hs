@@ -1,14 +1,15 @@
 module Bot.Commands where
 
-import           Data.Functor         (void)
-import           Data.Text            (Text)
-import           Data.Types.Env       (HasEnv)
-import           Discord              (DiscordHandler, restCall)
-import           Discord.Interactions (CreateApplicationCommand,
-                                       Interaction (interactionId, interactionToken),
-                                       OptionsData, createChatInput,
-                                       interactionResponseBasic)
-import qualified Discord.Requests     as R
+import           Control.Monad.IO.Class
+import           Data.Functor           (void)
+import           Data.Text              (Text)
+import           Data.Types.Env         (HasEnv)
+import           Discord                (DiscordHandler, restCall)
+import           Discord.Interactions   (CreateApplicationCommand,
+                                         Interaction (interactionId, interactionToken),
+                                         OptionsData, createChatInput,
+                                         interactionResponseBasic)
+import qualified Discord.Requests       as R
 
 data SlashCommand = SlashCommand
   { name         :: Text
@@ -17,7 +18,10 @@ data SlashCommand = SlashCommand
   }
 
 slashCommands :: HasEnv c => [c -> SlashCommand]
-slashCommands = [ping]
+slashCommands =
+  [ ping
+  , registerReminder
+  ]
 
 ping :: HasEnv c => c -> SlashCommand
 ping _env = SlashCommand
@@ -29,4 +33,17 @@ ping _env = SlashCommand
           (interactionId intr)
           (interactionToken intr)
           (interactionResponseBasic  "pong")
+  }
+
+registerReminder :: HasEnv c => c -> SlashCommand
+registerReminder _env = SlashCommand
+  { name = "register-reminder"
+  , registration = createChatInput "register-reminder" "Creates a new reminder"
+  , handler = \intr options -> do
+      liftIO $ print options
+      void . restCall $
+        R.CreateInteractionResponse
+          (interactionId intr)
+          (interactionToken intr)
+          (interactionResponseBasic "Registered!")
   }

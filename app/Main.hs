@@ -1,5 +1,6 @@
 module Main where
-import           Bot                (pingpongExample)
+
+import           Bot                (reminderBot)
 import           Data.Aeson         (eitherDecodeFileStrict)
 import           Data.Maybe         (fromMaybe, listToMaybe)
 import           Data.Types.App     (runAppM)
@@ -12,7 +13,7 @@ main = do
   args <- getArgs
   fEnv <- eitherDecodeFileStrict . fromMaybe defaultConfigPath $ listToMaybe args
   env  <- either fail mkEnv fEnv
-  e    <- runAppM env pingpongExample
+  e    <- runAppM env reminderBot
   either (fail . showAppError) pure e
   where
     defaultConfigPath = "./config.json"

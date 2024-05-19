@@ -1,9 +1,9 @@
 module Data.Types.App where
 
-import Control.Monad.Except
-import Control.Monad.Reader
-import Data.Types.Env
-import Data.Types.Error
+import           Control.Monad.Except
+import           Control.Monad.Reader
+import           Data.Types.Env
+import           Data.Types.Error
 
 type AppM m c e = ReaderT c (ExceptT e m)
 type CanAppM m c e =

@@ -2,14 +2,16 @@
 
 module Bot where
 
+import           Bot.Commands
 import           Control.Concurrent
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
-import           Data.List
+import           Data.Foldable
 import           Data.Text                          (Text)
 import qualified Data.Text                          as T
 import qualified Data.Text.IO                       as TIO
+import           Data.Traversable
 import           Data.Types.App                     (CanAppM)
 import           Data.Types.Env
 import           Discord
@@ -17,9 +19,6 @@ import           Discord.Interactions
 import qualified Discord.Internal.Rest.Interactions as RI
 import qualified Discord.Requests                   as R
 import           Discord.Types
-import Data.Traversable
-import Data.Foldable
-import Bot.Commands
 
 type DiscordM c = ReaderT c DiscordHandler
 runDiscordM :: c -> DiscordM c a -> DiscordHandler a
@@ -27,13 +26,13 @@ runDiscordM c m = runReaderT m c
 type CanDiscord m c = (MonadReader c m)
 
 -- | Replies "pong" to every message that starts with "ping"
-pingpongExample :: CanAppM m c e => m ()
-pingpongExample = do
+reminderBot :: CanAppM m c e => m ()
+reminderBot = do
   cId <- asks botToken
   c <- ask
   userFacingError <- liftIO $ runDiscord $ def
     { discordToken = "Bot " <> cId
-    , discordOnEvent = runDiscordM c . eventHandler c
+    , discordOnEvent = eventHandler c
     , discordOnLog = \s -> TIO.putStrLn s >> TIO.putStrLn ""
     } -- if you see OnLog error, post in the discord / open an issue
 
@@ -57,16 +56,16 @@ showT :: Show a => a -> Text
 showT = T.pack . show
 
 
-eventHandler :: HasEnv c => c -> Event -> DiscordM c ()
+eventHandler :: HasEnv c => c -> Event -> DiscordHandler ()
 eventHandler c event = case event of
-  MessageCreate m -> lift $ when (isPing m && not (fromBot m)) $ do
+  MessageCreate m -> when (isPing m && not (fromBot m)) $ do
     void $ restCall (R.CreateReaction (messageChannelId m, messageId m) "eyes")
     liftIO $ threadDelay (2 * 1_000_000)
     void $ restCall (R.CreateMessage (messageChannelId m) "Pong!")
-    -- Only sent on initial startup, set up commands and the like here
+  -- Only sent on initial startup, set up commands and the like here
   Ready _apiVersion _user guilds _sessionId _resumeGatewayUrl _shard (PartialApplication appId _) ->
-    lift $ onReady appId $ idOnceAvailable <$> guilds
-  InteractionCreate i -> lift $ onInteractionCreate i
+    onReady appId $ idOnceAvailable <$> guilds
+  InteractionCreate i -> onInteractionCreate i
   _ -> return ()
   where
     commands :: [SlashCommand]
@@ -103,15 +102,9 @@ eventHandler c event = case event of
     onInteractionCreate cmd = case cmd of
       InteractionPing iId _aid tok _v _perms -> void $ restCall $
         RI.CreateInteractionResponse iId tok InteractionResponsePong
-      InteractionApplicationCommand
-        { applicationCommandData = input@ApplicationCommandDataChatInput {} } ->
-          case
-            find (\sc -> applicationCommandDataName input == name sc) commands
-          of
-            Just found ->
-              handler found cmd (optionsData input)
-            Nothing ->
-              echo "Somehow got unknown slash command (registrations out of date?)"
-      _ ->
-        pure () -- Unexpected/unsupported interaction type
+      InteractionApplicationCommand { applicationCommandData = input@ApplicationCommandDataChatInput {} } ->
+        case find (\sc -> applicationCommandDataName input == name sc) commands of
+          Just found -> handler found cmd (optionsData input)
+          Nothing -> echo "Somehow got unknown slash command (registrations out of date?)"
+      _ -> pure () -- Unexpected/unsupported interaction type
 
