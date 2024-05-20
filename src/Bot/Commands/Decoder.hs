@@ -21,7 +21,7 @@ type Success      a f r = a      -> f r
 newtype Decoder a = Decoder
   { runDecoder
       :: forall (f :: (Type -> Type)) (r :: Type).
-         -- This parse branch can implicitly backtrack and try
+         -- This decode branch can implicitly backtrack and try
          -- another decoder. Basically it hasn't "consumed"
          -- any of the input
          EpsilonFailure f r
