@@ -22,18 +22,18 @@ newtype Decoder a = Decoder
   { runDecoder
       :: forall (f :: (Type -> Type)) (r :: Type).
          -- This parse branch can implicitly backtrack and try
-         -- another parser. Basically it hasn't "consumed"
+         -- another decoder. Basically it hasn't "consumed"
          -- any of the input
          EpsilonFailure f r
          -- Committed failure. This cannot implicitly backtrack.
          -- This is useful because it will limit the returned error
-         -- to the current parse branch rather than wandering off
+         -- to the current decoder branch rather than wandering off
          -- into another branch.
       -> Failure f r
-         -- Committed success. Causes the parser to switch from
+         -- Committed success. Causes the decoder to switch from
          -- epsilon failures into commited failures. Basically
          -- recognises that we have found a partially successful
-         -- parse path.
+         -- decode path.
       -> Success a f r
       -> f r
   }
