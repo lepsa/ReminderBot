@@ -14,7 +14,10 @@ import qualified Data.Text.IO                       as TIO
 import           Data.Traversable
 import           Data.Types.App                     (CanAppM)
 import           Data.Types.Env
-import           Discord
+import           Discord                            (DiscordHandler,
+                                                     RestCallErrorCode (RestCallErrorCode),
+                                                     RunDiscordOpts (discordOnEvent, discordOnLog, discordToken),
+                                                     def, restCall, runDiscord)
 import           Discord.Interactions
 import qualified Discord.Internal.Rest.Interactions as RI
 import qualified Discord.Requests                   as R
@@ -74,7 +77,7 @@ eventHandler c event = case event of
     onReady :: ApplicationId -> [GuildId] -> DiscordHandler ()
     onReady appId guilds = do
       echo "Bot ready!"
-      guildCmdRegistrations <- for guilds $ \guild -> do
+      guildCmdRegistrations <- for guilds $ \guild ->
         (guild, ) <$> traverse (tryRegistering guild) commands
       for_ guildCmdRegistrations $ \(guild, appCmdRegistrations) ->
         case sequence appCmdRegistrations of

@@ -47,6 +47,7 @@ common depends
                     , filepath
                     , time
                     , uuid
+                    , scientific
 
 library
     import:           warnings
@@ -54,6 +55,7 @@ library
     import:           extensions
     exposed-modules:  Bot
                     , Bot.Commands
+                    , Bot.Commands.Decoder
                     , Data.Types.Env
                     , Data.Types.App
                     , Data.Types.Error
