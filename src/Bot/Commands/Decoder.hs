@@ -111,8 +111,8 @@ withOptionDataValueNumber f = \case
 (.!) :: Decoder a -> (a -> Decoder b) -> Decoder b
 (.!) = (>>=)
 
-(.?) :: Decoder (Maybe a) -> (a -> Decoder b) -> Decoder (Maybe b)
-d .? f = d >>= maybe (pure Nothing) (fmap pure . f)
+(.!?) :: Decoder (Maybe a) -> (a -> Decoder b) -> Decoder (Maybe b)
+d .!? f = d >>= maybe (pure Nothing) (fmap pure . f)
 
 (.:) :: HasNames o i => o -> Text -> Decoder i
 o .: n = named n pure o

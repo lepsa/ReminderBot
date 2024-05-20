@@ -114,13 +114,13 @@ decodeFooSubcommandSndsubcmd = withOptionsDataSubcommands $
     scOptions o = do
       let m = mapNames o
       Sndsubcmd
-        <$> m .:  "trueorfalse" .! withOptionDataValueBoolean     (const pure)
-        <*> m .:? "numbercomm"  .? withOptionDataValueNumber      (const eitherDecoder)
-        <*> m .:? "numbercomm2" .? withOptionDataValueInteger     (const eitherDecoder)
-        <*> m .:? "numbercomm3" .? withOptionDataValueInteger     (const eitherDecoder)
-        <*> m .:? "user"        .? withOptionDataValueUser        (const pure)
-        <*> m .:? "channel"     .? withOptionDataValueChannel     (const pure)
-        <*> m .:? "mentionable" .? withOptionDataValueMentionable (const pure)
+        <$> m .:  "trueorfalse" .!  withOptionDataValueBoolean     (const pure)
+        <*> m .:? "numbercomm"  .!? withOptionDataValueNumber      (const eitherDecoder)
+        <*> m .:? "numbercomm2" .!? withOptionDataValueInteger     (const eitherDecoder)
+        <*> m .:? "numbercomm3" .!? withOptionDataValueInteger     (const eitherDecoder)
+        <*> m .:? "user"        .!? withOptionDataValueUser        (const pure)
+        <*> m .:? "channel"     .!? withOptionDataValueChannel     (const pure)
+        <*> m .:? "mentionable" .!? withOptionDataValueMentionable (const pure)
 
 decodeFooSubCommand :: OptionsData -> Decoder FooSubcommand
 decodeFooSubCommand o =
