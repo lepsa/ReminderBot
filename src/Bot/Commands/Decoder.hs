@@ -3,52 +3,61 @@
 
 module Bot.Commands.Decoder where
 import           Control.Applicative
+import           Control.Monad
+import           Data.Foldable         (find)
 import           Data.Kind
-import           Data.Map              (Map)
-import qualified Data.Map              as M
-import           Data.Text
+import           Data.Text             (Text)
 import qualified Data.Text             as T
 import           Discord.Interactions
 import           Discord.Internal.Rest
-import Control.Monad
 
 -- This is the same as the `aeson` "parser" but with a less
 -- confusing name and no path information.
 
-type Failure f r = String -> f r
-type Success a f r = a -> f r
+type EpsilonFailure f r = String -> f r
+type Failure        f r = String -> f r
+type Success      a f r = a      -> f r
 
 newtype Decoder a = Decoder
-  { runDecoder :: forall (f :: (Type -> Type)) (r :: Type). Failure f r -> Success a f r -> f r
+  { runDecoder
+      :: forall (f :: (Type -> Type)) (r :: Type).
+         EpsilonFailure f r
+      -> Failure f r
+      -> Success a f r
+      -> f r
   }
 
 decode :: MonadFail m => Decoder a -> m a
-decode d = runDecoder d fail pure
+decode d = runDecoder d fail fail pure
 
 decodeEither :: Decoder a -> Either String a
-decodeEither d = runDecoder d Left pure
+decodeEither d = runDecoder d Left Left pure
 
 instance Functor Decoder where
-  fmap x (Decoder y) = Decoder $ \f s -> y f (s . x)
+  fmap x (Decoder y) = Decoder $ \ef f s -> y ef f (s . x)
 
 instance Monad Decoder where
-  (Decoder fa) >>= f = Decoder $ \failure success ->
-    fa failure $ \a ->
+  (Decoder fa) >>= f = Decoder $ \efailure failure success ->
+    fa efailure failure $ \a ->
       let (Decoder g) = f a
-      in g failure success
+      in g failure failure success
 
 instance Applicative Decoder where
-  pure a = Decoder $ \_f s -> s a
-  (Decoder fab) <*> (Decoder fa) = Decoder $ \failure success ->
-    fab failure $ \ab -> fa failure (success . ab)
+  pure a = Decoder $ \_ef _f s -> s a
+  (Decoder fab) <*> (Decoder fa) = Decoder $ \efailure failure success ->
+    fab efailure failure $ \ab -> fa failure failure (success . ab)
 
 instance Alternative Decoder where
-  empty = Decoder $ \f _s -> f "Empty"
-  (Decoder p) <|> (Decoder q) = Decoder $ \f s ->
-    p (\_ -> q f s) s
+  empty = Decoder $ \ef _f _s -> ef "Empty"
+  (Decoder p) <|> (Decoder q) = Decoder $ \ef f s ->
+    p (\_ -> q ef f s) f s
+
+try :: Decoder a -> Decoder a
+try (Decoder d) = Decoder $ \ef _f s ->
+  d ef ef s
 
 instance MonadFail Decoder where
-  fail msg = Decoder $ \f _s -> f msg
+  fail msg = Decoder $ \ef _f _s -> ef msg
 
 instance MonadPlus Decoder
 
@@ -114,23 +123,23 @@ withOptionDataValueNumber f = \case
 (.!?) :: Decoder (Maybe a) -> (a -> Decoder b) -> Decoder (Maybe b)
 d .!? f = d >>= maybe (pure Nothing) (fmap pure . f)
 
-(.:) :: HasNames o i => o -> Text -> Decoder i
+(.:) :: HasNames o f i => o -> Text -> Decoder i
 o .: n = named n pure o
 
-(.:?) :: HasNames o i => o -> Text -> Decoder (Maybe i)
+(.:?) :: HasNames o f i => o -> Text -> Decoder (Maybe i)
 o .:? n = namedOptional n pure o
 
-named :: HasNames o i => Text -> (i -> Decoder a) -> o -> Decoder a
-named n f = maybe (fail $ "Missing named value: " <> T.unpack n) f . M.lookup n . mapNames
+named :: HasNames o f i => Text -> (i -> Decoder a) -> o -> Decoder a
+named n f = maybe (fail $ "Missing named value: " <> T.unpack n) f . find (\v -> name v == n) . mapNames
 
-namedOptional :: HasNames o i => Text -> (i -> Decoder a) -> o -> Decoder (Maybe a)
-namedOptional n f = maybe (pure Nothing) (fmap pure . f) . M.lookup n . mapNames
+namedOptional :: HasNames o f i => Text -> (i -> Decoder a) -> o -> Decoder (Maybe a)
+namedOptional n f = maybe (pure Nothing) (fmap pure . f) . find (\v -> name v == n) . mapNames
 
 class HasName o where
   name :: o -> Text
 
-class HasNames outer inner | outer -> inner where
-  mapNames :: outer -> Map Text inner
+class (HasName inner, Foldable f) => HasNames outer f inner | outer -> f inner where
+  mapNames :: outer -> f inner
 
 instance HasName OptionDataSubcommandOrGroup where
   name (OptionDataSubcommandGroup n _ _)                                    = n
@@ -142,14 +151,11 @@ instance HasName OptionDataSubcommand where
 instance HasName OptionDataValue where
   name = optionDataValueName
 
-instance HasName o => HasNames [o] o where
-  mapNames l = M.fromList $ (\o -> (name o, o)) <$> l
-
-instance HasNames (Map Text a) a where
+instance HasName o => HasNames [o] [] o where
   mapNames = id
 
-instance HasNames OptionDataSubcommand OptionDataValue where
-  mapNames = mapNames . optionDataSubcommandOptions
+instance HasNames OptionDataSubcommand [] OptionDataValue where
+  mapNames = optionDataSubcommandOptions
 
-instance HasNames OptionDataSubcommandOrGroup OptionDataSubcommand where
-  mapNames = mapNames . optionDataSubcommandGroupOptions
+instance HasNames OptionDataSubcommandOrGroup [] OptionDataSubcommand where
+  mapNames = optionDataSubcommandGroupOptions

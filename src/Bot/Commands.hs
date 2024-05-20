@@ -79,13 +79,11 @@ eitherDecoder :: Either Text a -> Decoder a
 eitherDecoder = either failText pure
 
 decodeFooSubcommandFrstsubcmdgrp :: OptionsData -> Decoder FooSubcommand
-decodeFooSubcommandFrstsubcmdgrp = withOptionsDataSubcommands $
-  frstsubcmdgrp (frstsubcmd scOptions)
+decodeFooSubcommandFrstsubcmdgrp =
+    withOptionsDataSubcommands
+  $ named "frstsubcmdgrp"
+  $ named "frstsubcmd" scOptions
   where
-    frstsubcmdgrp :: (OptionDataSubcommandOrGroup -> Decoder a) -> [OptionDataSubcommandOrGroup] -> Decoder a
-    frstsubcmdgrp = named "frstsubcmdgrp"
-    frstsubcmd :: (OptionDataSubcommand -> Decoder a) -> OptionDataSubcommandOrGroup -> Decoder a
-    frstsubcmd = named "frstsubcmd"
     scOptions opts = do
       let options = mapNames opts
       Frstsubcmdgrp
@@ -93,24 +91,20 @@ decodeFooSubcommandFrstsubcmdgrp = withOptionsDataSubcommands $
         <*> options .: "oneintinput"    .! withOptionDataValueInteger (const eitherDecoder)
 
 decodeFooSubcommandFrstsubcmd :: OptionsData -> Decoder FooSubcommand
-decodeFooSubcommandFrstsubcmd = withOptionsDataSubcommands $
-  frstsubcmd onestringinput
-  where
-    frstsubcmd :: (OptionDataSubcommand -> Decoder a) -> [OptionDataSubcommandOrGroup] -> Decoder a
-    frstsubcmd f = named "frstsubcmd" (withOptionDataSubcommandOrGroupSubcommand f)
-    onestringinput :: OptionDataSubcommand -> Decoder FooSubcommand
-    onestringinput = named "onestringinput" stringInput
-    stringInput :: OptionDataValue -> Decoder FooSubcommand
-    stringInput = withOptionDataValueString $ \_ e -> Frstsubcmd <$>
-      either (fail . T.unpack) pure e
+decodeFooSubcommandFrstsubcmd =
+      withOptionsDataSubcommands
+    $ named "frstsubcmd"
+    $ withOptionDataSubcommandOrGroupSubcommand
+    $ named "onestringinput"
+    $ withOptionDataValueString
+    $ \_ -> fmap Frstsubcmd . eitherDecoder
 
 decodeFooSubcommandSndsubcmd :: OptionsData -> Decoder FooSubcommand
-decodeFooSubcommandSndsubcmd = withOptionsDataSubcommands $
-  sndsubcmd scOptions
+decodeFooSubcommandSndsubcmd =
+    withOptionsDataSubcommands
+  $ named "sndsubcmd"
+  $ withOptionDataSubcommandOrGroupSubcommand scOptions
   where
-    sndsubcmd :: (OptionDataSubcommand -> Decoder a) -> [OptionDataSubcommandOrGroup] -> Decoder a
-    sndsubcmd f = named "sndsubcmd" (withOptionDataSubcommandOrGroupSubcommand f)
-    scOptions :: OptionDataSubcommand -> Decoder FooSubcommand
     scOptions o = do
       let m = mapNames o
       Sndsubcmd
