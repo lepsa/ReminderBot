@@ -61,8 +61,8 @@ exampleSlashCommand _env = SlashCommand
         void $ restCall $ R.CreateInteractionResponse (interactionId intr) (interactionToken intr) $ interactionResponseBasic $
           -- T.pack $ "oh boy, subcommands! welp, here's everything I got from that: " <> show (optionsData input)
           T.pack $
-            maybe "no options data"
-            (either id show . (\d -> runDecoder d Left Right) . decodeFooSubCommand)
+            maybe "No options data"
+            (either id show . decodeEither . decodeFooSubCommand)
             $ optionsData input
       _ -> pure ()
   }
@@ -75,56 +75,54 @@ data FooSubcommand
   | Sndsubcmd Bool (Maybe Scientific) (Maybe Integer) (Maybe Integer) (Maybe UserId) (Maybe ChannelId) (Maybe Snowflake)
   deriving (Eq, Ord, Show)
 
-decodeFooSubcommandFrstsubcmdgrp :: OptionsData -> Decoder f r FooSubcommand
+eitherDecoder :: Either Text a -> Decoder a
+eitherDecoder = either failText pure
+
+decodeFooSubcommandFrstsubcmdgrp :: OptionsData -> Decoder FooSubcommand
 decodeFooSubcommandFrstsubcmdgrp = withOptionsDataSubcommands $
   frstsubcmdgrp (frstsubcmd scOptions)
   where
-    frstsubcmdgrp :: ([OptionDataSubcommand] -> Decoder f r a) -> [OptionDataSubcommandOrGroup] -> Decoder f r a
-    frstsubcmdgrp f = named "frstsubcmdgrp" (f . optionDataSubcommandGroupOptions) . mapNames
-    frstsubcmd :: ([OptionDataValue] -> Decoder f r a) -> [OptionDataSubcommand] -> Decoder f r a
-    frstsubcmd f = named "frstsubcmd" (f . optionDataSubcommandOptions) . mapNames
-    scOptions :: [OptionDataValue] -> Decoder f r FooSubcommand
+    frstsubcmdgrp :: (OptionDataSubcommandOrGroup -> Decoder a) -> [OptionDataSubcommandOrGroup] -> Decoder a
+    frstsubcmdgrp = named "frstsubcmdgrp"
+    frstsubcmd :: (OptionDataSubcommand -> Decoder a) -> OptionDataSubcommandOrGroup -> Decoder a
+    frstsubcmd = named "frstsubcmd"
     scOptions opts = do
-      let options'' = mapNames opts
+      let options = mapNames opts
       Frstsubcmdgrp
-        <$> named "onestringinput"
-          (withOptionDataValueString $ \_ -> either (fail . T.unpack) pure
-          ) options''
-        <*> named "oneintinput"
-          (withOptionDataValueInteger $ \_ -> either (fail . T.unpack) pure
-          ) options''
+        <$> options .: "onestringinput" .! withOptionDataValueString  (const eitherDecoder)
+        <*> options .: "oneintinput"    .! withOptionDataValueInteger (const eitherDecoder)
 
-decodeFooSubcommandFrstsubcmd :: OptionsData -> Decoder f r FooSubcommand
+decodeFooSubcommandFrstsubcmd :: OptionsData -> Decoder FooSubcommand
 decodeFooSubcommandFrstsubcmd = withOptionsDataSubcommands $
   frstsubcmd onestringinput
   where
-    frstsubcmd :: (OptionDataSubcommand -> Decoder f r a) -> [OptionDataSubcommandOrGroup] -> Decoder f r a
-    frstsubcmd f = named "frstsubcmd" (withOptionDataSubcommandOrGroupSubcommand f) . mapNames
-    onestringinput :: OptionDataSubcommand -> Decoder f r FooSubcommand
-    onestringinput = named "onestringinput" stringInput . mapNames . optionDataSubcommandOptions
-    stringInput :: OptionDataValue -> Decoder f r FooSubcommand
+    frstsubcmd :: (OptionDataSubcommand -> Decoder a) -> [OptionDataSubcommandOrGroup] -> Decoder a
+    frstsubcmd f = named "frstsubcmd" (withOptionDataSubcommandOrGroupSubcommand f)
+    onestringinput :: OptionDataSubcommand -> Decoder FooSubcommand
+    onestringinput = named "onestringinput" stringInput
+    stringInput :: OptionDataValue -> Decoder FooSubcommand
     stringInput = withOptionDataValueString $ \_ e -> Frstsubcmd <$>
       either (fail . T.unpack) pure e
 
-decodeFooSubcommandSndsubcmd :: OptionsData -> Decoder f r FooSubcommand
+decodeFooSubcommandSndsubcmd :: OptionsData -> Decoder FooSubcommand
 decodeFooSubcommandSndsubcmd = withOptionsDataSubcommands $
   sndsubcmd scOptions
   where
-    sndsubcmd :: (OptionDataSubcommand -> Decoder f r a) -> [OptionDataSubcommandOrGroup] -> Decoder f r a
-    sndsubcmd f = named "sndsubcmd" (withOptionDataSubcommandOrGroupSubcommand f) . mapNames
-    scOptions :: OptionDataSubcommand -> Decoder f r FooSubcommand
+    sndsubcmd :: (OptionDataSubcommand -> Decoder a) -> [OptionDataSubcommandOrGroup] -> Decoder a
+    sndsubcmd f = named "sndsubcmd" (withOptionDataSubcommandOrGroupSubcommand f)
+    scOptions :: OptionDataSubcommand -> Decoder FooSubcommand
     scOptions o = do
-      let m = mapNames $ optionDataSubcommandOptions o
+      let m = mapNames o
       Sndsubcmd
-        <$> named         "trueorfalse" (withOptionDataValueBoolean     $ const pure) m
-        <*> namedOptional "numbercomm"  (withOptionDataValueNumber      $ \_ -> either failText pure) m
-        <*> namedOptional "numbercomm2" (withOptionDataValueInteger     $ \_ -> either failText pure) m
-        <*> namedOptional "numbercomm3" (withOptionDataValueInteger     $ \_ -> either failText pure) m
-        <*> namedOptional "user"        (withOptionDataValueUser        $ const pure) m
-        <*> namedOptional "channel"     (withOptionDataValueChannel     $ const pure) m
-        <*> namedOptional "mentionable" (withOptionDataValueMentionable $ const pure) m
+        <$> m .:  "trueorfalse" .! withOptionDataValueBoolean     (const pure)
+        <*> m .:? "numbercomm"  .? withOptionDataValueNumber      (const eitherDecoder)
+        <*> m .:? "numbercomm2" .? withOptionDataValueInteger     (const eitherDecoder)
+        <*> m .:? "numbercomm3" .? withOptionDataValueInteger     (const eitherDecoder)
+        <*> m .:? "user"        .? withOptionDataValueUser        (const pure)
+        <*> m .:? "channel"     .? withOptionDataValueChannel     (const pure)
+        <*> m .:? "mentionable" .? withOptionDataValueMentionable (const pure)
 
-decodeFooSubCommand :: OptionsData -> Decoder f r FooSubcommand
+decodeFooSubCommand :: OptionsData -> Decoder FooSubcommand
 decodeFooSubCommand o =
       decodeFooSubcommandFrstsubcmdgrp o
   <|> decodeFooSubcommandFrstsubcmd o
