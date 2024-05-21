@@ -2,13 +2,16 @@ module Bot.Commands where
 
 import           Bot.Commands.Decoder
 import           Bot.Commands.Types
-import           Data.Functor         (void)
-import           Data.Text            (Text)
-import qualified Data.Text            as T
-import           Data.Types.Env       (HasEnv)
-import           Discord              (DiscordHandler, restCall)
+import           Control.Concurrent.STM
+import           Control.Monad.IO.Class (MonadIO (liftIO))
+import           Data.Functor           (void)
+import           Data.Text              (Text)
+import qualified Data.Text              as T
+import           Data.Types.Env         (CreateDeleteReminder (CreateReminderChan, DeleteReminderChan),
+                                         HasEnv, threads, reminderIds)
+import           Discord                (DiscordHandler, restCall)
 import           Discord.Interactions
-import qualified Discord.Requests     as R
+import qualified Discord.Requests       as R
 
 data SlashCommand = SlashCommand
   { name         :: Text
@@ -34,7 +37,7 @@ ping _env = SlashCommand
   }
 
 reminder :: HasEnv c => c -> SlashCommand
-reminder _env = SlashCommand
+reminder c = SlashCommand
   { name = "reminder"
   , registration = pure $ CreateApplicationCommandChatInput
     { createName = "reminder"
@@ -68,9 +71,19 @@ reminder _env = SlashCommand
             . interactionResponseBasic
       case optionsData input of
         Nothing -> sendMsg "No options found in application command"
-        Just opts -> do
-          case decodeEither $ decodeReminder opts of
-            Left e  -> sendMsg $ T.pack $ show e
-            Right o -> sendMsg $ T.pack $ show o
+        Just opts -> case decodeEither $ decodeReminder opts of
+          Left e  -> sendMsg $ T.pack $ show e
+          Right o -> case o of
+            RegisterReminder register -> do
+              liftIO $ atomically $ writeTChan (threads c) $ CreateReminderChan (interactionGuildId intr) (interactionChannelId intr) register
+              sendMsg $ "Register Reminder: " <> T.pack (show register)
+            ListReminders -> do
+              -- TODO replace with a DB call
+              l <- liftIO $ readTVarIO (reminderIds c)
+              sendMsg $ "List Reminders: " <> T.pack (show l)
+            DeleteReminder uuid -> do
+              liftIO $ atomically $ do
+                writeTChan (threads c) $ DeleteReminderChan (interactionGuildId intr) (interactionChannelId intr) uuid
+              sendMsg $ "Delete Reminder: " <> T.pack (show uuid)
     _ -> pure ()
   }

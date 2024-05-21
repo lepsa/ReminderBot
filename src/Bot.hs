@@ -3,22 +3,31 @@
 module Bot where
 
 import           Bot.Commands
+import           Bot.Commands.Types
 import           Control.Concurrent
+import           Control.Concurrent.STM
+import           Control.Concurrent.Thread.Delay
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Data.Foldable
+import           Data.Map                           (Map)
+import qualified Data.Map                           as M
 import           Data.Text                          (Text)
 import qualified Data.Text                          as T
 import qualified Data.Text.IO                       as TIO
 import           Data.Traversable
 import           Data.Types.App                     (CanAppM)
 import           Data.Types.Env
+import           Data.UUID
+import           Data.UUID.V4                       (nextRandom)
 import           Discord                            (DiscordHandler,
                                                      RestCallErrorCode (RestCallErrorCode),
-                                                     RunDiscordOpts (discordOnEvent, discordOnLog, discordToken),
-                                                     def, restCall, runDiscord)
+                                                     RunDiscordOpts (discordOnEnd, discordOnEvent, discordOnLog, discordToken),
+                                                     def, discordOnStart,
+                                                     restCall, runDiscord)
 import           Discord.Interactions
+import qualified Discord.Internal.Rest.Channel      as R
 import qualified Discord.Internal.Rest.Interactions as RI
 import qualified Discord.Requests                   as R
 import           Discord.Types
@@ -33,10 +42,14 @@ reminderBot :: CanAppM m c e => m ()
 reminderBot = do
   cId <- asks botToken
   c <- ask
+  void $ liftIO $ forkIO $ manageThreads c
   userFacingError <- liftIO $ runDiscord $ def
     { discordToken = "Bot " <> cId
     , discordOnEvent = eventHandler c
     , discordOnLog = \s -> TIO.putStrLn s >> TIO.putStrLn ""
+    , discordOnStart = sendReminders c
+    , discordOnEnd = do
+      atomically $ writeTChan (threads c) StopAll
     } -- if you see OnLog error, post in the discord / open an issue
 
   liftIO $ TIO.putStrLn userFacingError
@@ -111,3 +124,60 @@ eventHandler c event = case event of
           Nothing -> echo "Somehow got unknown slash command (registrations out of date?)"
       _ -> pure () -- Unexpected/unsupported interaction type
 
+manageThreads :: HasEnv c => c -> IO ()
+manageThreads c = do
+  reminderThreads <- newTVarIO mempty
+  loop reminderThreads
+  where
+    forkReminder :: TVar (Map UUID ThreadId) -> Reminder -> IO ()
+    forkReminder reminderThreads r = do
+      let uuid = reminderId r
+      threadId <- forkIO $ startReminder c r
+      atomically $ modifyTVar reminderThreads $ M.insert uuid threadId
+    loop reminderThreads = do
+      action <- atomically $ readTChan (threads c)
+      case action of
+        CreateReminderChan guild channel register -> do
+          -- r <- _ guild channel register
+          -- TODO replace with DB calls
+          uuid <- liftIO nextRandom
+          let r = Reminder uuid (registerReminderName register) (registerReminderTimeBetween register) (registerReminderMessage register) (registerReminderChannel register)
+          liftIO $ atomically $ modifyTVar (reminderIds c) (uuid :)
+          forkReminder reminderThreads r
+          loop reminderThreads
+        DeleteReminderChan guild channel uuid -> do
+          m <- readTVarIO reminderThreads
+          let mThread = M.lookup uuid m
+          atomically $ modifyTVar reminderThreads $ M.delete uuid
+          liftIO $ atomically $ modifyTVar (reminderIds c) $ filter (/= uuid)
+          traverse_ killThread mThread
+          -- TODO add DB calls
+          -- _ guild channel uuid
+          loop reminderThreads
+        InitialiseReminder -> do
+          -- TODO replace with DB calls
+          rs <- pure []
+          traverse_ (forkReminder reminderThreads) rs
+          loop reminderThreads
+        StopAll -> do
+          m <- readTVarIO reminderThreads
+          traverse_ killThread m
+
+startReminder :: HasEnv c => c -> Reminder -> IO ()
+startReminder c r = loop $ toSeconds $ reminderTimeBetween r
+  where
+    loop s = do
+      delay $ 1_000_000 * s
+      atomically $ writeTChan (reminderChan c) (reminderChannel r, reminderMessage r)
+      loop s
+
+sendReminders :: HasEnv c => c -> DiscordHandler ()
+sendReminders c = do
+  h <- ask
+  void $ liftIO $ forkIO $ runReaderT loop h
+  where
+    loop :: DiscordHandler ()
+    loop = do
+      (channel, message) <- liftIO $  atomically $ readTChan $ reminderChan c
+      void . restCall $ R.CreateMessage channel message
+      loop

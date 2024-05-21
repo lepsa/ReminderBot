@@ -48,6 +48,8 @@ common depends
                     , time
                     , uuid
                     , scientific
+                    , stm
+                    , unbounded-delays
 
 library
     import:           warnings

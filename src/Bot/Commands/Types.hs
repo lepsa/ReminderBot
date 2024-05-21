@@ -7,7 +7,15 @@ import           Data.UUID             (UUID, fromText)
 import           Discord.Interactions
 import           Discord.Internal.Rest
 
-data Reminder
+data Reminder = Reminder
+  { reminderId          :: UUID
+  , reminderName        :: Text
+  , reminderTimeBetween :: TimeBetween
+  , reminderMessage     :: Text
+  , reminderChannel     :: ChannelId
+  } deriving (Eq, Ord, Show)
+
+data ReminderCommand
   = RegisterReminder Register
   | ListReminders
   | DeleteReminder UUID
@@ -20,19 +28,27 @@ data TimeBetween = TimeBetween
   , weeks   :: Maybe Integer
   } deriving (Eq, Ord, Show)
 
+toSeconds :: TimeBetween -> Integer
+toSeconds t =
+    maybe 0 (*60)                (minutes t)
+  + maybe 0 (\x -> x*60*60)      (hours t)
+  + maybe 0 (\x -> x*60*60*24)   (days t)
+  + maybe 0 (\x -> x*60*60*24*7) (weeks t)
+
 data Register = Register
-  { registerReminderTimeBetween :: TimeBetween
+  { registerReminderName        :: Text
+  , registerReminderTimeBetween :: TimeBetween
   , registerReminderMessage     :: Text
   , registerReminderChannel     :: ChannelId
   } deriving (Eq, Ord, Show)
 
-decodeReminder :: OptionsData -> Decoder Reminder
+decodeReminder :: OptionsData -> Decoder ReminderCommand
 decodeReminder o =
       decodeListReminders o
   <|> RegisterReminder <$> decodeRegister o
   <|> decodeDeleteReminder o
 
-decodeDeleteReminder :: OptionsData -> Decoder Reminder
+decodeDeleteReminder :: OptionsData -> Decoder ReminderCommand
 decodeDeleteReminder =
     withOptionsDataSubcommands
   $ named "delete"
@@ -46,7 +62,7 @@ decodeDeleteReminder =
         (pure . DeleteReminder)
         $ fromText uuid
 
-decodeListReminders :: OptionsData -> Decoder Reminder
+decodeListReminders :: OptionsData -> Decoder ReminderCommand
 decodeListReminders =
     withOptionsDataSubcommands
   $ named "list"
@@ -65,8 +81,10 @@ decodeRegister =
         <*> options .:? "frequency_hours"   .!? withOptionDataValueInteger (const eitherDecoder)
         <*> options .:? "frequency_days"    .!? withOptionDataValueInteger (const eitherDecoder)
         <*> options .:? "frequency_weeks"   .!? withOptionDataValueInteger (const eitherDecoder)
-      Register tb
-        <$> options .: "message" .! withOptionDataValueString (const $ either pure pure)
+      Register 
+        <$> options .: "name"    .! withOptionDataValueString (const $ either pure pure)
+        <*> pure tb
+        <*> options .: "message" .! withOptionDataValueString (const $ either pure pure)
         <*> options .: "channel" .! withOptionDataValueChannel (const pure)
 
 data FooSubcommand
