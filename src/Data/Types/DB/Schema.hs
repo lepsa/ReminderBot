@@ -97,7 +97,7 @@ migrateSchemaV0 =
 
 migrateSchemaV1 :: [Query]
 migrateSchemaV1 =
-  [ "create table reminder (id text primary key not null, name text not null, time_between integer not null, message text not null, channel integer not null, guild integer not null, unique (name, guild))"
+  [ "create table reminder (id text primary key not null, name text not null, time_between integer not null, message text not null, channel integer not null, guild integer not null, created datetime not null, unique (name, guild))"
   ]
 
 migrateSchemaV2 :: [Query]

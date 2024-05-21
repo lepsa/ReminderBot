@@ -34,6 +34,7 @@ import qualified Discord.Internal.Rest.Interactions as RI
 import qualified Discord.Requests                   as R
 import           Discord.Types
 import Data.Time
+import Data.Maybe
 
 type DiscordM c = ReaderT c DiscordHandler
 runDiscordM :: c -> DiscordM c a -> DiscordHandler a
@@ -181,13 +182,11 @@ manageThreads c = do
 startReminder :: HasEnv c => c -> UTCTime -> Reminder -> Maybe UTCTime -> IO ()
 startReminder c currentTime r lastRun =  do
   let secondsBetween = unSeconds $ reminderTimeBetween r
-  case lastRun of
-    Nothing -> delay $ 1_000_000 * secondsBetween
-    Just t -> do
-      let t' = diffUTCTime currentTime t
-      if t' > fromInteger secondsBetween
-      then pure ()
-      else delay $ 1_000_000 * truncate t'
+      lastRun' = fromMaybe (reminderCreated r) lastRun
+      t' = diffUTCTime currentTime lastRun'
+  if t' > fromInteger secondsBetween
+  then pure ()
+  else delay $ 1_000_000 * truncate t'
   loop secondsBetween
   where
     loop s = do

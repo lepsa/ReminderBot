@@ -14,13 +14,13 @@ import           Discord.Internal.Types
 getReminderByName :: CanAppM m c e => GuildId -> Text -> m Reminder
 getReminderByName guild name = do
   c <- asks conn
-  l <- liftIO $ query c "select id, name, time_between, message, channel, guild from reminder where guild = ? and name = ?" (guild, name)
+  l <- liftIO $ query c "select id, name, time_between, message, channel, guild, created from reminder where guild = ? and name = ?" (guild, name)
   ensureSingleResult l
 
 getReminderById :: CanAppM m c e => GuildId -> UUID -> m Reminder
 getReminderById guild uuid = do
   c <- asks conn
-  l <- liftIO $ query c "select id, name, time_between, message, channel, guild from reminder where guild = ? and id = ?" (guild, uuid)
+  l <- liftIO $ query c "select id, name, time_between, message, channel, guild, created from reminder where guild = ? and id = ?" (guild, uuid)
   ensureSingleResult l
 
 getReminders :: CanAppM m c e => m [Reminder]
@@ -29,13 +29,13 @@ getReminders = do
   liftIO $ getRemindersIO c
 
 getRemindersIO :: Connection -> IO [Reminder]
-getRemindersIO c = query_ c "select id, name, time_between, message, channel, guild from reminder"
+getRemindersIO c = query_ c "select id, name, time_between, message, channel, guild, created from reminder"
 
 createReminder :: CanAppM m c e => Text -> Seconds -> Text -> ChannelId -> GuildId -> m Reminder
 createReminder name timeBetween message channel guild = do
   c <- asks conn
   uuid <- liftIO nextRandom
-  l <- liftIO $ query c "insert into reminder (id, name, time_between, message, channel, guild) values (?, ?, ?, ?, ?, ?) returning id, name, time_between, message, channel, guild" (uuid, name, timeBetween, message, channel, guild)
+  l <- liftIO $ query c "insert into reminder (id, name, time_between, message, channel, guild, created) values (?, ?, ?, ?, ?, ?, datetime()) returning id, name, time_between, message, channel, guild, created" (uuid, name, timeBetween, message, channel, guild)
   ensureSingleInsert l
 
 deleteReminderById :: CanAppM m c e => GuildId -> UUID -> m ()

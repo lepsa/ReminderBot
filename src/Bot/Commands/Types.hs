@@ -44,11 +44,13 @@ data Reminder = Reminder
   , reminderMessage     :: Text
   , reminderChannel     :: ChannelId
   , reminderGuild       :: GuildId
+  , reminderCreated     :: UTCTime
   } deriving (Eq, Ord, Show)
 
 instance FromRow Reminder where
   fromRow = Reminder
     <$> field
+    <*> field
     <*> field
     <*> field
     <*> field
