@@ -20,6 +20,9 @@ FROM debian:buster as reminderbot
 
 COPY --from=build /opt/reminderbot/ReminderBot /opt/reminderbot/ReminderBot
 
+RUN apt-get update
+RUN apt-get install -y ca-certificates
+
 WORKDIR /opt/reminderbot
 
-CMD ["/opt/reminderbot/ReminderBot"]
+CMD /opt/reminderbot/ReminderBot /opt/reminderbot/ReminderBotConfig/config.json
