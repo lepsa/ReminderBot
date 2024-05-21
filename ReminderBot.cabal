@@ -56,9 +56,11 @@ library
     exposed-modules:  Bot
                     , Bot.Commands
                     , Bot.Commands.Decoder
+                    , Bot.Commands.Types
                     , Data.Types.Env
                     , Data.Types.App
                     , Data.Types.Error
+                    , Data.Types.DB.Schema
     -- other-modules:
     -- other-extensions:
     hs-source-dirs:   src

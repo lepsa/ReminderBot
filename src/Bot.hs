@@ -107,7 +107,7 @@ eventHandler c event = case event of
         RI.CreateInteractionResponse iId tok InteractionResponsePong
       InteractionApplicationCommand { applicationCommandData = input@ApplicationCommandDataChatInput {} } ->
         case find (\sc -> applicationCommandDataName input == name sc) commands of
-          Just found -> handler found cmd (optionsData input)
+          Just found -> handler found cmd
           Nothing -> echo "Somehow got unknown slash command (registrations out of date?)"
       _ -> pure () -- Unexpected/unsupported interaction type
 

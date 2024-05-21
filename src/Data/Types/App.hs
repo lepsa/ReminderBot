@@ -8,7 +8,7 @@ import           Data.Types.Error
 type AppM m c e = ReaderT c (ExceptT e m)
 type CanAppM m c e =
   ( HasEnv c
-  , AsError e AppError
+  , AsError e
   , MonadReader c m
   , MonadError e m
   , MonadIO m

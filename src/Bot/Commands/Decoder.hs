@@ -44,6 +44,9 @@ decode d = runDecoder d fail fail pure
 decodeEither :: Decoder a -> Either String a
 decodeEither d = runDecoder d Left Left pure
 
+eitherDecoder :: Either Text a -> Decoder a
+eitherDecoder = either failText pure
+
 instance Functor Decoder where
   fmap x (Decoder y) = Decoder $ \ef f s -> y ef f (s . x)
 
