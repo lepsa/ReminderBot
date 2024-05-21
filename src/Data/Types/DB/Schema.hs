@@ -95,7 +95,19 @@ migrateSchemaV0 =
   [ "insert into schema_version (version) values (0)"
   ]
 
+migrateSchemaV1 :: [Query]
+migrateSchemaV1 =
+  [ "create table reminder (id text primary key not null, name text not null, time_between integer not null, message text not null, channel integer not null, guild integer not null, unique (name, guild))"
+  ]
+
+migrateSchemaV2 :: [Query]
+migrateSchemaV2 =
+  [ "create table reminder_last_sent (id text primary key not null, last_sent datetime not null)"
+  ]
+
 migrations :: [(Version, [Query])]
 migrations =
   [ (0, migrateSchemaV0)
+  , (1, migrateSchemaV1)
+  , (2, migrateSchemaV2)
   ]

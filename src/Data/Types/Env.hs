@@ -33,15 +33,16 @@ mkEnv fileEnv = Env
   <*> pure (fileEnvBotToken fileEnv)
   <*> newTChanIO
   <*> newTChanIO
-  <*> newTVarIO []
 
 data CreateDeleteReminder
-  = CreateReminderChan (Maybe GuildId) (Maybe ChannelId) Register
-  | DeleteReminderChan (Maybe GuildId) (Maybe ChannelId) UUID
+  = CreateReminderChan GuildId Register
+  | DeleteReminderChan GuildId (Either Text UUID)
   -- Actions for server startup and stop
   | InitialiseReminder
   | StopAll
   deriving (Eq, Ord, Show)
+
+type InMemoryKey = (Text, GuildId, UUID)
 
 data Env = Env
   { envConn         :: Connection
@@ -51,15 +52,14 @@ data Env = Env
   , envBotToken     :: Text
   , envThreads      :: TChan CreateDeleteReminder
   , envReminderChan :: TChan (ChannelId, Text)
-  , envReminderIds  :: TVar [UUID]
   }
 
 class HasEnv c where
-  {-# MINIMAL env | (conn, clientId, clientSecret, publicKey, botToken, threads, reminderChan, reminderIds) #-}
+  {-# MINIMAL env | (conn, clientId, clientSecret, publicKey, botToken, threads, reminderChan) #-}
   env :: c -> Env
   env c = Env
     (conn c) (clientId c) (clientSecret c) (publicKey c)
-    (botToken c) (threads c) (reminderChan c) (reminderIds c)
+    (botToken c) (threads c) (reminderChan c)
   conn :: c -> Connection
   conn = envConn . env
   clientId :: c -> Text
@@ -74,8 +74,6 @@ class HasEnv c where
   threads = envThreads . env
   reminderChan :: c -> TChan (ChannelId, Text)
   reminderChan = envReminderChan . env
-  reminderIds :: c -> TVar [UUID]
-  reminderIds = envReminderIds . env
 
 instance HasEnv Env where
   env = id

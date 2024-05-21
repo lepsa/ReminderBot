@@ -63,6 +63,8 @@ library
                     , Data.Types.App
                     , Data.Types.Error
                     , Data.Types.DB.Schema
+                    , Data.Types.DB.Reminder
+                    , Data.Types.DB.Util
     -- other-modules:
     -- other-extensions:
     hs-source-dirs:   src

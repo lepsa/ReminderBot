@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 
 module Bot where
 
@@ -17,10 +18,11 @@ import           Data.Text                          (Text)
 import qualified Data.Text                          as T
 import qualified Data.Text.IO                       as TIO
 import           Data.Traversable
-import           Data.Types.App                     (CanAppM)
+import           Data.Types.App                     (CanAppM, runAppM)
+import           Data.Types.DB.Reminder
+import           Data.Types.DB.Schema
 import           Data.Types.Env
-import           Data.UUID
-import           Data.UUID.V4                       (nextRandom)
+import           Data.Types.Error
 import           Discord                            (DiscordHandler,
                                                      RestCallErrorCode (RestCallErrorCode),
                                                      RunDiscordOpts (discordOnEnd, discordOnEvent, discordOnLog, discordToken),
@@ -31,6 +33,7 @@ import qualified Discord.Internal.Rest.Channel      as R
 import qualified Discord.Internal.Rest.Interactions as RI
 import qualified Discord.Requests                   as R
 import           Discord.Types
+import Data.Time
 
 type DiscordM c = ReaderT c DiscordHandler
 runDiscordM :: c -> DiscordM c a -> DiscordHandler a
@@ -40,6 +43,9 @@ type CanDiscord m c = (MonadReader c m)
 -- | Replies "pong" to every message that starts with "ping"
 reminderBot :: CanAppM m c e => m ()
 reminderBot = do
+  setupDatabase
+  createSchema
+  runMigrations
   cId <- asks botToken
   c <- ask
   void $ liftIO $ forkIO $ manageThreads c
@@ -47,7 +53,9 @@ reminderBot = do
     { discordToken = "Bot " <> cId
     , discordOnEvent = eventHandler c
     , discordOnLog = \s -> TIO.putStrLn s >> TIO.putStrLn ""
-    , discordOnStart = sendReminders c
+    , discordOnStart = do
+      sendReminders c
+      liftIO $ atomically $ writeTChan (threads c) InitialiseReminder
     , discordOnEnd = do
       atomically $ writeTChan (threads c) StopAll
     } -- if you see OnLog error, post in the discord / open an issue
@@ -124,51 +132,69 @@ eventHandler c event = case event of
           Nothing -> echo "Somehow got unknown slash command (registrations out of date?)"
       _ -> pure () -- Unexpected/unsupported interaction type
 
-manageThreads :: HasEnv c => c -> IO ()
+manageThreads :: forall c. HasEnv c => c -> IO ()
 manageThreads c = do
   reminderThreads <- newTVarIO mempty
   loop reminderThreads
   where
-    forkReminder :: TVar (Map UUID ThreadId) -> Reminder -> IO ()
+    forkReminder :: TVar (Map InMemoryKey ThreadId) -> Reminder -> IO ()
     forkReminder reminderThreads r = do
       let uuid = reminderId r
-      threadId <- forkIO $ startReminder c r
-      atomically $ modifyTVar reminderThreads $ M.insert uuid threadId
+      now <- getCurrentTime
+      lastRun <- getLastSentIO (conn c) uuid
+      threadId <- forkIO $ startReminder c now r lastRun
+      atomically $ modifyTVar reminderThreads $ M.insert (reminderName r, reminderGuild r, uuid) threadId
+
+    createReminderChan reminderThreads guild (Register {..}) = do
+      either print (forkReminder reminderThreads) <=<
+        runAppM @IO @c @AppError c $ createReminder
+          registerReminderName
+          (toSeconds registerReminderTimeBetween)
+          registerReminderMessage
+          registerReminderChannel
+          guild
+      loop reminderThreads
+
+    deleteReminderChan reminderThreads guild ref = do
+      m <- readTVarIO reminderThreads
+      let mKey = find (\(n', g', u') -> g' == guild && either (== n') (== u') ref) $ M.keys m
+      case mKey of
+        Nothing -> loop reminderThreads
+        Just k -> do
+          atomically $ modifyTVar reminderThreads $ M.delete k
+          let mThread = M.lookup k m
+          traverse_ killThread mThread
+          either print pure <=< runAppM @IO @c @AppError c $ deleteReminderByRef guild ref
+          loop reminderThreads
+
     loop reminderThreads = do
       action <- atomically $ readTChan (threads c)
       case action of
-        CreateReminderChan guild channel register -> do
-          -- r <- _ guild channel register
-          -- TODO replace with DB calls
-          uuid <- liftIO nextRandom
-          let r = Reminder uuid (registerReminderName register) (registerReminderTimeBetween register) (registerReminderMessage register) (registerReminderChannel register)
-          liftIO $ atomically $ modifyTVar (reminderIds c) (uuid :)
-          forkReminder reminderThreads r
-          loop reminderThreads
-        DeleteReminderChan guild channel uuid -> do
-          m <- readTVarIO reminderThreads
-          let mThread = M.lookup uuid m
-          atomically $ modifyTVar reminderThreads $ M.delete uuid
-          liftIO $ atomically $ modifyTVar (reminderIds c) $ filter (/= uuid)
-          traverse_ killThread mThread
-          -- TODO add DB calls
-          -- _ guild channel uuid
-          loop reminderThreads
+        CreateReminderChan guild register -> createReminderChan reminderThreads guild register
+        DeleteReminderChan guild register -> deleteReminderChan reminderThreads guild register
         InitialiseReminder -> do
-          -- TODO replace with DB calls
-          rs <- pure []
-          traverse_ (forkReminder reminderThreads) rs
+          e <- runAppM @IO @c @AppError c getReminders
+          either print (traverse_ (forkReminder reminderThreads)) e
           loop reminderThreads
-        StopAll -> do
-          m <- readTVarIO reminderThreads
-          traverse_ killThread m
+        StopAll -> readTVarIO reminderThreads >>= traverse_ killThread
 
-startReminder :: HasEnv c => c -> Reminder -> IO ()
-startReminder c r = loop $ toSeconds $ reminderTimeBetween r
+startReminder :: HasEnv c => c -> UTCTime -> Reminder -> Maybe UTCTime -> IO ()
+startReminder c currentTime r lastRun =  do
+  let secondsBetween = unSeconds $ reminderTimeBetween r
+  case lastRun of
+    Nothing -> delay $ 1_000_000 * secondsBetween
+    Just t -> do
+      let t' = diffUTCTime currentTime t
+      if t' > fromInteger secondsBetween
+      then pure ()
+      else delay $ 1_000_000 * truncate t'
+  loop secondsBetween
   where
     loop s = do
-      delay $ 1_000_000 * s
       atomically $ writeTChan (reminderChan c) (reminderChannel r, reminderMessage r)
+      now <- liftIO getCurrentTime
+      setLastSentIO (conn c) (reminderId r) now
+      delay $ 1_000_000 * s
       loop s
 
 sendReminders :: HasEnv c => c -> DiscordHandler ()
@@ -179,5 +205,5 @@ sendReminders c = do
     loop :: DiscordHandler ()
     loop = do
       (channel, message) <- liftIO $  atomically $ readTChan $ reminderChan c
-      void . restCall $ R.CreateMessage channel message
+      either (liftIO . print) (\_ -> pure ()) <=< restCall $ R.CreateMessage channel message
       loop
