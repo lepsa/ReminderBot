@@ -1,0 +1,9 @@
+services:
+  reminderbot:
+    build:
+      context: ./
+      target: reminderbot
+    volumes:
+      - ${PWD}/ReminderBot.sqlite3:/opt/reminderbot/ReminderBot.sqlite3
+      - ${PWD}/.config.json:/opt/reminderbot/config.json
+    restart: unless-stopped
