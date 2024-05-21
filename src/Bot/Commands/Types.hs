@@ -1,38 +1,15 @@
-{-# OPTIONS_GHC -Wno-orphans #-}
 module Bot.Commands.Types where
+
 import           Bot.Commands.Decoder
 import           Control.Applicative
 import           Data.Text
-import           Data.UUID              (UUID, fromText, toString, fromString)
+import           Data.Types.DB.Util               ()
+import           Data.UUID                        (UUID, fromText)
 import           Database.SQLite.Simple
+import           Database.SQLite.Simple.FromField
+import           Database.SQLite.Simple.ToField
 import           Discord.Interactions
 import           Discord.Internal.Rest
-import Database.SQLite.Simple.FromField
-import Database.SQLite.Simple.ToField
-import Database.SQLite.Simple.FromRow
-import Control.Monad
-
--- FromField for UUIDs is an instance we need to write ourselves
--- so that we aren't explicitly wrapping and unwrapping everywhere.
-instance FromField UUID where
-  fromField :: FieldParser UUID
-  fromField = fromField @String >=> maybe (fail "Could not parse UUID") pure . fromString
-instance FromRow UUID where
-  fromRow = fieldWith fromField
-instance ToField UUID where
-  toField = toField @String . toString
-
-instance FromField Snowflake where
-  fromField f = Snowflake <$> fromField f
-
-instance ToField Snowflake where
-  toField = toField . unSnowflake
-
-instance FromField (DiscordId a) where
-  fromField f = DiscordId <$> fromField f
-
-instance ToField (DiscordId a) where
-  toField = toField . unId
 
 newtype Seconds = Seconds { unSeconds :: Integer }
   deriving (Eq, Ord, Show, Num, Read, ToField, FromField)
@@ -61,6 +38,7 @@ data ReminderCommand
   = RegisterReminder Register
   | ListReminders
   | DeleteReminder (Either Text UUID)
+  | SetRole RoleId
   deriving (Eq, Ord, Show)
 
 data TimeBetween = TimeBetween
@@ -89,6 +67,7 @@ decodeReminder o =
       decodeListReminders o
   <|> RegisterReminder <$> decodeRegister o
   <|> decodeDeleteReminder o
+  <|> decodeSetRole o
 
 decodeUUID :: Text -> Decoder UUID
 decodeUUID = maybe (fail "Could not decode a UUID") pure . fromText
@@ -105,6 +84,15 @@ decodeDeleteReminder =
       n <- options .:? "reminder_name" .!? withOptionDataValueString (const $ either pure pure)
       m <- maybe (fail "Needs either reminder_id or reminder_name") pure $ (Left <$> n) <|> (Right <$> u)
       pure $ DeleteReminder m
+
+decodeSetRole :: OptionsData -> Decoder ReminderCommand
+decodeSetRole =
+    withOptionsDataSubcommands
+  $ named "set-role"
+  $ withOptionDataSubcommandOrGroupSubcommand roleOpts
+  where
+    roleOpts opts = SetRole <$> do
+      mapNames opts .: "role" .! withOptionDataValueRole (const pure)
 
 decodeListReminders :: OptionsData -> Decoder ReminderCommand
 decodeListReminders =

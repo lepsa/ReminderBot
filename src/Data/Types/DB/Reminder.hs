@@ -23,13 +23,21 @@ getReminderById guild uuid = do
   l <- liftIO $ query c "select id, name, time_between, message, channel, guild, created from reminder where guild = ? and id = ?" (guild, uuid)
   ensureSingleResult l
 
-getReminders :: CanAppM m c e => m [Reminder]
-getReminders = do
+getReminders :: CanAppM m c e => GuildId -> m [Reminder]
+getReminders g = do
   c <- asks conn
-  liftIO $ getRemindersIO c
+  liftIO $ getRemindersIO c g
 
-getRemindersIO :: Connection -> IO [Reminder]
-getRemindersIO c = query_ c "select id, name, time_between, message, channel, guild, created from reminder"
+getRemindersIO :: Connection -> GuildId -> IO [Reminder]
+getRemindersIO c g = query c "select id, name, time_between, message, channel, guild, created from reminder where guild = ?" (Only g)
+
+getAllReminders :: CanAppM m c e => m [Reminder]
+getAllReminders = do
+  c <- asks conn
+  liftIO $ getAllRemindersIO c
+
+getAllRemindersIO :: Connection -> IO [Reminder]
+getAllRemindersIO c = query_ c "select id, name, time_between, message, channel, guild, created from reminder"
 
 createReminder :: CanAppM m c e => Text -> Seconds -> Text -> ChannelId -> GuildId -> m Reminder
 createReminder name timeBetween message channel guild = do

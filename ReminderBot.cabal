@@ -65,6 +65,7 @@ library
                     , Data.Types.DB.Schema
                     , Data.Types.DB.Reminder
                     , Data.Types.DB.Util
+                    , Data.Types.DB.Permissions
     -- other-modules:
     -- other-extensions:
     hs-source-dirs:   src

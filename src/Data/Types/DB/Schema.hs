@@ -105,9 +105,15 @@ migrateSchemaV2 =
   [ "create table reminder_last_sent (id text primary key not null, last_sent datetime not null)"
   ]
 
+migrateSchemaV3 :: [Query]
+migrateSchemaV3 =
+  [ "create table permission (guild integer primary key not null, role integer not null)"
+  ]
+
 migrations :: [(Version, [Query])]
 migrations =
   [ (0, migrateSchemaV0)
   , (1, migrateSchemaV1)
   , (2, migrateSchemaV2)
+  , (3, migrateSchemaV3)
   ]

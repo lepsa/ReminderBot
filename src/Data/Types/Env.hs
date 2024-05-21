@@ -35,8 +35,9 @@ mkEnv fileEnv = Env
   <*> newTChanIO
 
 data CreateDeleteReminder
-  = CreateReminderChan GuildId Register
-  | DeleteReminderChan GuildId (Either Text UUID)
+  = CreateReminderChan GuildId Register           ChannelId [RoleId]
+  | DeleteReminderChan GuildId (Either Text UUID) ChannelId [RoleId]
+  | SetPermissionChan  GuildId RoleId             ChannelId [RoleId]
   -- Actions for server startup and stop
   | InitialiseReminder
   | StopAll

@@ -14,11 +14,15 @@ import           Control.Monad.Reader
 import           Data.Foldable
 import           Data.Map                           (Map)
 import qualified Data.Map                           as M
+import           Data.Maybe
 import           Data.Text                          (Text)
 import qualified Data.Text                          as T
 import qualified Data.Text.IO                       as TIO
+import           Data.Time
 import           Data.Traversable
 import           Data.Types.App                     (CanAppM, runAppM)
+import           Data.Types.DB.Permissions          (checkPermissionIO,
+                                                     setPermissionIO)
 import           Data.Types.DB.Reminder
 import           Data.Types.DB.Schema
 import           Data.Types.Env
@@ -33,8 +37,6 @@ import qualified Discord.Internal.Rest.Channel      as R
 import qualified Discord.Internal.Rest.Interactions as RI
 import qualified Discord.Requests                   as R
 import           Discord.Types
-import Data.Time
-import Data.Maybe
 
 type DiscordM c = ReaderT c DiscordHandler
 runDiscordM :: c -> DiscordM c a -> DiscordHandler a
@@ -171,10 +173,20 @@ manageThreads c = do
     loop reminderThreads = do
       action <- atomically $ readTChan (threads c)
       case action of
-        CreateReminderChan guild register -> createReminderChan reminderThreads guild register
-        DeleteReminderChan guild register -> deleteReminderChan reminderThreads guild register
+        CreateReminderChan guild register channelId userRoles -> do
+          allowed <- checkPermissionIO (conn c) guild userRoles
+          when allowed $ createReminderChan reminderThreads guild register
+          unless allowed $ atomically $ writeTChan (reminderChan c) (channelId, "Invalid Permissions")
+        DeleteReminderChan guild register channelId  userRoles -> do
+          allowed <- checkPermissionIO (conn c) guild userRoles
+          when allowed $ deleteReminderChan reminderThreads guild register
+          unless allowed $ atomically $ writeTChan (reminderChan c) (channelId, "Invalid Permissions")
+        SetPermissionChan  guild role channelId userRoles -> do
+          allowed <- checkPermissionIO (conn c) guild userRoles
+          when allowed $ setPermissionIO (conn c) guild role
+          unless allowed $ atomically $ writeTChan (reminderChan c) (channelId, "Invalid Permissions")
         InitialiseReminder -> do
-          e <- runAppM @IO @c @AppError c getReminders
+          e <- runAppM @IO @c @AppError c getAllReminders
           either print (traverse_ (forkReminder reminderThreads)) e
           loop reminderThreads
         StopAll -> readTVarIO reminderThreads >>= traverse_ killThread

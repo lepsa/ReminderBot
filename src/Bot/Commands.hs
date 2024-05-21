@@ -12,6 +12,7 @@ import           Data.Types.DB.Reminder (getRemindersIO)
 import           Data.Types.Env
 import           Discord                (DiscordHandler, restCall)
 import           Discord.Interactions
+import           Discord.Internal.Rest
 import qualified Discord.Requests       as R
 
 data SlashCommand = SlashCommand
@@ -54,6 +55,10 @@ reminder c = SlashCommand
             , OptionValueString "reminder_name" Nothing "Reminder Name" Nothing False (Left False) Nothing Nothing
             ]
         , OptionSubcommandOrGroupSubcommand $
+          OptionSubcommand "set-role" Nothing "Configure the role required to manage reminders" Nothing
+            [ OptionValueRole "role" Nothing "Role" Nothing True
+            ]
+        , OptionSubcommandOrGroupSubcommand $
           OptionSubcommand "list" Nothing "List all reminders" Nothing []
         , OptionSubcommandOrGroupSubcommand $
           OptionSubcommand "register" Nothing "Register a new reminder" Nothing
@@ -74,21 +79,30 @@ reminder c = SlashCommand
             . interactionResponseBasic
       case interactionGuildId intr of
         Nothing -> sendMsg "Requires a GuildID in application command"
-        Just guild -> case optionsData input of
-          Nothing -> sendMsg "No options found in application command"
-          Just opts -> case decodeEither $ decodeReminder opts of
-            Left e  -> sendMsg $ T.pack $ show e
-            Right o -> case o of
-              RegisterReminder register -> do
-                liftIO $ atomically $ writeTChan (threads c) $ CreateReminderChan guild register
-                sendMsg "Registered Reminder"
-              ListReminders -> do
-                l <- liftIO $ getRemindersIO $ conn c
-                let format r = reminderName r <> " : " <> "ID " <> T.pack (show $ reminderId r)
-                sendMsg $ "List Reminders:\n" <>
-                  mconcat (intersperse "\n" $ format <$> l)
-              DeleteReminder uuid -> do
-                liftIO $ atomically $ writeTChan (threads c) $ DeleteReminderChan guild uuid
-                sendMsg "Deleted Reminder"
+        Just guild -> case interactionChannelId intr of
+          Nothing -> sendMsg "Requires a ChannelID in application command"
+          Just channelId -> do
+            case optionsData input of
+              Nothing -> sendMsg "No options found in application command"
+              Just opts -> case decodeEither $ decodeReminder opts of
+                Left e  -> sendMsg $ T.pack $ show e
+                Right o -> case o of
+                  RegisterReminder register -> do
+                    liftIO $ atomically $ writeTChan (threads c) $ CreateReminderChan guild register channelId (getRoles $ interactionUser intr)
+                    sendMsg "Registered Reminder"
+                  ListReminders -> do
+                    l <- liftIO $ getRemindersIO (conn c) guild
+                    let format r = reminderName r <> " : " <> "ID " <> T.pack (show $ reminderId r)
+                    sendMsg $ "List Reminders:\n" <>
+                      mconcat (intersperse "\n" $ format <$> l)
+                  DeleteReminder uuid -> do
+                    liftIO $ atomically $ writeTChan (threads c) $ DeleteReminderChan guild uuid channelId (getRoles $ interactionUser intr)
+                    sendMsg "Deleted Reminder"
+                  SetRole role -> do
+                    liftIO $ atomically $ writeTChan (threads c) $ SetPermissionChan guild role channelId (getRoles $ interactionUser intr)
+                    sendMsg "Role Set"
     _ -> pure ()
   }
+
+getRoles :: MemberOrUser -> [RoleId]
+getRoles (MemberOrUser e) = either memberRoles (const []) e
