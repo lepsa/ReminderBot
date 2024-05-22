@@ -5,15 +5,16 @@ import           Bot.Commands.Types
 import           Control.Concurrent.STM
 import           Control.Monad.IO.Class (MonadIO (liftIO))
 import           Data.Functor           (void)
-import           Data.List
 import           Data.Text              (Text)
 import qualified Data.Text              as T
-import           Data.Types.DB.Reminder (getRemindersIO)
 import           Data.Types.Env
 import           Discord                (DiscordHandler, restCall)
 import           Discord.Interactions
 import           Discord.Internal.Rest
 import qualified Discord.Requests       as R
+import Data.Types.DB.Permissions
+import Data.List
+import Data.Types.DB.Reminder
 
 data SlashCommand = SlashCommand
   { name         :: Text
@@ -73,6 +74,11 @@ reminder c = SlashCommand
         ]
     }
   , handler = \intr -> case intr of
+    -- When get get an application interaction event
+    -- collect the required information and create
+    -- a new item on the memory channels so that the
+    -- loops with access to Discord handles and the
+    -- reminder thread management can process things.
     InteractionApplicationCommand { applicationCommandData = input@ApplicationCommandDataChatInput {} } -> do
       let sendMsg = void . restCall
             . R.CreateInteractionResponse (interactionId intr) (interactionToken intr)
@@ -88,19 +94,39 @@ reminder c = SlashCommand
                 Left e  -> sendMsg $ T.pack $ show e
                 Right o -> case o of
                   RegisterReminder register -> do
-                    liftIO $ atomically $ writeTChan (threads c) $ CreateReminderChan guild register channelId (getRoles $ interactionUser intr)
-                    sendMsg "Registered Reminder"
+                    liftIO $ putStrLn $ "RegisterReminder: " <> show register
+                    allowed <- liftIO $ checkPermissionIO (conn c) guild (getRoles $ interactionUser intr)
+                    if allowed
+                    then do
+                      liftIO $ atomically $ writeTChan (threads c) $ CreateReminderChan guild register channelId
+                      sendMsg "Reminder is being registered"
+                    else sendMsg "Invalid Permissions"
                   ListReminders -> do
-                    l <- liftIO $ getRemindersIO (conn c) guild
-                    let format r = reminderName r <> " : " <> "ID " <> T.pack (show $ reminderId r)
-                    sendMsg $ "List Reminders:\n" <>
-                      mconcat (intersperse "\n" $ format <$> l)
+                    liftIO $ putStrLn "ListReminders"
+                    allowed <- liftIO $ checkPermissionIO (conn c) guild (getRoles $ interactionUser intr)
+                    if allowed
+                    then do
+                      l <- liftIO $ getRemindersIO (conn c) guild
+                      let format r = reminderName r <> " : " <> "ID " <> T.pack (show $ reminderId r)
+                      sendMsg $ "List Reminders:\n" <> mconcat (intersperse "\n" $ format <$> l)
+                    else sendMsg "Invalid Permissions"
                   DeleteReminder uuid -> do
-                    liftIO $ atomically $ writeTChan (threads c) $ DeleteReminderChan guild uuid channelId (getRoles $ interactionUser intr)
-                    sendMsg "Deleted Reminder"
+                    liftIO $ putStrLn $ "DeleteReminder: " <> show uuid
+                    allowed <- liftIO $ checkPermissionIO (conn c) guild (getRoles $ interactionUser intr)
+                    if allowed
+                    then do
+                      liftIO $ atomically $ writeTChan (threads c) $ DeleteReminderChan guild uuid channelId
+                      sendMsg "Reminder is being deleted"
+                    else sendMsg "Invalid Permissions"
                   SetRole role -> do
-                    liftIO $ atomically $ writeTChan (threads c) $ SetPermissionChan guild role channelId (getRoles $ interactionUser intr)
-                    sendMsg "Role Set"
+                    liftIO $ putStrLn $ "SetRole: " <> show role
+                    allowed <- liftIO $ checkPermissionIO (conn c) guild (getRoles $ interactionUser intr)
+                    if allowed
+                    then do
+                      liftIO $ atomically $ writeTChan (threads c) $ SetPermissionChan guild role channelId
+                      sendMsg "Role is being set"
+                    else sendMsg "Invalid Permissions"
+
     _ -> pure ()
   }
 

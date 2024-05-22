@@ -21,8 +21,7 @@ import qualified Data.Text.IO                       as TIO
 import           Data.Time
 import           Data.Traversable
 import           Data.Types.App                     (CanAppM, runAppM)
-import           Data.Types.DB.Permissions          (checkPermissionIO,
-                                                     setPermissionIO)
+import           Data.Types.DB.Permissions          (setPermissionIO)
 import           Data.Types.DB.Reminder
 import           Data.Types.DB.Schema
 import           Data.Types.Env
@@ -39,9 +38,10 @@ import qualified Discord.Requests                   as R
 import           Discord.Types
 
 type DiscordM c = ReaderT c DiscordHandler
+type CanDiscord m c = (MonadReader c m)
+
 runDiscordM :: c -> DiscordM c a -> DiscordHandler a
 runDiscordM c m = runReaderT m c
-type CanDiscord m c = (MonadReader c m)
 
 -- | Replies "pong" to every message that starts with "ping"
 reminderBot :: CanAppM m c e => m ()
@@ -51,6 +51,7 @@ reminderBot = do
   runMigrations
   cId <- asks botToken
   c <- ask
+  -- Setup reminder threads, and listen for management messages
   void $ liftIO $ forkIO $ manageThreads c
   userFacingError <- liftIO $ runDiscord $ def
     { discordToken = "Bot " <> cId
@@ -58,6 +59,7 @@ reminderBot = do
     , discordOnLog = \s -> TIO.putStrLn s >> TIO.putStrLn ""
     , discordOnStart = do
       sendReminders c
+      -- Send the message to start the reminders.
       liftIO $ atomically $ writeTChan (threads c) InitialiseReminder
     , discordOnEnd = do
       atomically $ writeTChan (threads c) StopAll
@@ -67,64 +69,57 @@ reminderBot = do
   -- userFacingError is an unrecoverable error
   -- put normal 'cleanup' code in discordOnEnd (see examples)
 
-fromBot :: Message -> Bool
-fromBot = userIsBot . messageAuthor
-
-isPing :: Message -> Bool
-isPing = ("ping" `T.isPrefixOf`) . T.toLower . messageContent
-
-registerCommands :: DiscordM c ()
-registerCommands = pure ()
-
 echo :: MonadIO m => Text -> m ()
 echo = liftIO . TIO.putStrLn
 
 showT :: Show a => a -> Text
 showT = T.pack . show
 
-
 eventHandler :: HasEnv c => c -> Event -> DiscordHandler ()
 eventHandler c event = case event of
-  MessageCreate m -> when (isPing m && not (fromBot m)) $ do
-    void $ restCall (R.CreateReaction (messageChannelId m, messageId m) "eyes")
-    liftIO $ threadDelay (2 * 1_000_000)
-    void $ restCall (R.CreateMessage (messageChannelId m) "Pong!")
   -- Only sent on initial startup, set up commands and the like here
-  Ready _apiVersion _user guilds _sessionId _resumeGatewayUrl _shard (PartialApplication appId _) ->
-    onReady appId $ idOnceAvailable <$> guilds
+  Ready _apiVersion _user guilds _sessionId _resumeGatewayUrl _shard (PartialApplication aId _) -> do
+    -- Set out application ID into config so everything can read it.
+    liftIO $ atomically $ writeTVar (appId c) $ Just aId
+    echo "Bot ready!"
+    onReady aId $ idOnceAvailable <$> guilds
   InteractionCreate i -> onInteractionCreate i
+  GuildCreate guild _guildCreateData -> do
+    m <- liftIO . readTVarIO $ appId c
+    for_ m $ \aId -> onReady aId [guildId guild]
+  GuildDelete _guild -> do
+    -- TODO delete old reminders, clean up threads
+    pure ()
+  ChannelDelete _channel -> do
+    -- TODO delete old reminders, clean up threads
+    pure ()
   _ -> return ()
   where
     commands :: [SlashCommand]
     commands = ($ c) <$> slashCommands
-
+    -- Setup the commands
     onReady :: ApplicationId -> [GuildId] -> DiscordHandler ()
-    onReady appId guilds = do
-      echo "Bot ready!"
+    onReady aId guilds = do
       guildCmdRegistrations <- for guilds $ \guild ->
         (guild, ) <$> traverse (tryRegistering guild) commands
       for_ guildCmdRegistrations $ \(guild, appCmdRegistrations) ->
         case sequence appCmdRegistrations of
-          Left err ->
-            echo $ "[!] Failed to register some commands" <> showT err
-          Right cmds -> do
-            echo $ "Registered " <> showT (length cmds) <> " command(s)."
-            unregisterOutdatedCmds guild cmds
+          Left err -> echo $ "[!] Failed to register some commands" <> showT err
+          Right cmds -> unregisterOutdatedCmds guild cmds
       where
       tryRegistering guild cmd = case registration cmd of
-        Just reg -> restCall $ R.CreateGuildApplicationCommand appId guild reg
+        Just reg -> restCall $ R.CreateGuildApplicationCommand aId guild reg
         Nothing  -> pure . Left $ RestCallErrorCode 0 "" ""
 
       unregisterOutdatedCmds guild validCmds = do
-        registered <- restCall $ R.GetGuildApplicationCommands appId guild
+        registered <- restCall $ R.GetGuildApplicationCommands aId guild
         case registered of
           Left err -> echo $ "Failed to get registered slash commands: " <> showT err
-          Right cmds ->
+          Right cmds -> do
             let validIds    = applicationCommandId <$> validCmds
-                outdatedIds = filter (`notElem` validIds)
-                            $ applicationCommandId <$> cmds
-             in for_ outdatedIds $ restCall . R.DeleteGuildApplicationCommand appId guild
-
+                outdatedIds = filter (`notElem` validIds) $ applicationCommandId <$> cmds
+            for_ outdatedIds $ restCall . R.DeleteGuildApplicationCommand aId guild
+    -- Handle interaction events.
     onInteractionCreate :: Interaction -> DiscordHandler ()
     onInteractionCreate cmd = case cmd of
       InteractionPing iId _aid tok _v _perms -> void $ restCall $
@@ -156,35 +151,33 @@ manageThreads c = do
           registerReminderMessage
           registerReminderChannel
           guild
-      loop reminderThreads
 
     deleteReminderChan reminderThreads guild ref = do
       m <- readTVarIO reminderThreads
       let mKey = find (\(n', g', u') -> g' == guild && either (== n') (== u') ref) $ M.keys m
       case mKey of
-        Nothing -> loop reminderThreads
+        Nothing -> pure ()
         Just k -> do
           atomically $ modifyTVar reminderThreads $ M.delete k
           let mThread = M.lookup k m
           traverse_ killThread mThread
           either print pure <=< runAppM @IO @c @AppError c $ deleteReminderByRef guild ref
-          loop reminderThreads
 
     loop reminderThreads = do
       action <- atomically $ readTChan (threads c)
       case action of
-        CreateReminderChan guild register channelId userRoles -> do
-          allowed <- checkPermissionIO (conn c) guild userRoles
-          when allowed $ createReminderChan reminderThreads guild register
-          unless allowed $ atomically $ writeTChan (reminderChan c) (channelId, "Invalid Permissions")
-        DeleteReminderChan guild register channelId  userRoles -> do
-          allowed <- checkPermissionIO (conn c) guild userRoles
-          when allowed $ deleteReminderChan reminderThreads guild register
-          unless allowed $ atomically $ writeTChan (reminderChan c) (channelId, "Invalid Permissions")
-        SetPermissionChan  guild role channelId userRoles -> do
-          allowed <- checkPermissionIO (conn c) guild userRoles
-          when allowed $ setPermissionIO (conn c) guild role
-          unless allowed $ atomically $ writeTChan (reminderChan c) (channelId, "Invalid Permissions")
+        CreateReminderChan guild register channelId -> do
+          createReminderChan reminderThreads guild register
+          atomically $ writeTChan (reminderChan c) (channelId, "Reminder created")
+          loop reminderThreads
+        DeleteReminderChan guild ref channelId -> do
+          deleteReminderChan reminderThreads guild ref
+          atomically $ writeTChan (reminderChan c) (channelId, "Reminder deleted")
+          loop reminderThreads
+        SetPermissionChan guild role channelId -> do
+          setPermissionIO (conn c) guild role
+          atomically $ writeTChan (reminderChan c) (channelId, "Role set")
+          loop reminderThreads
         InitialiseReminder -> do
           e <- runAppM @IO @c @AppError c getAllReminders
           either print (traverse_ (forkReminder reminderThreads)) e
@@ -194,11 +187,17 @@ manageThreads c = do
 startReminder :: HasEnv c => c -> UTCTime -> Reminder -> Maybe UTCTime -> IO ()
 startReminder c currentTime r lastRun =  do
   let secondsBetween = unSeconds $ reminderTimeBetween r
-      lastRun' = fromMaybe (reminderCreated r) lastRun
-      t' = diffUTCTime currentTime lastRun'
-  if t' > fromInteger secondsBetween
+      createdOrRan = fromMaybe (reminderCreated r) lastRun
+      -- We count when the reminder was created as a "run"
+      -- as people don't need a message for the thing they
+      -- just set up.
+      -- Don't allow this to be negative.
+      timeSinceLastReminder = truncate . abs $ diffUTCTime currentTime createdOrRan
+  if timeSinceLastReminder > fromInteger secondsBetween
+  -- Immediately send a message
   then pure ()
-  else delay $ 1_000_000 * truncate t'
+  -- Wait the difference and then send the message
+  else delay $ 1_000_000 * (secondsBetween - timeSinceLastReminder)
   loop secondsBetween
   where
     loop s = do
@@ -208,10 +207,10 @@ startReminder c currentTime r lastRun =  do
       delay $ 1_000_000 * s
       loop s
 
+-- Listen on the channel to get messages to send to channels.
 sendReminders :: HasEnv c => c -> DiscordHandler ()
 sendReminders c = do
-  h <- ask
-  void $ liftIO $ forkIO $ runReaderT loop h
+  ask >>= void . liftIO . forkIO . runReaderT loop
   where
     loop :: DiscordHandler ()
     loop = do
