@@ -166,15 +166,15 @@ manageThreads c = do
     loop reminderThreads = do
       action <- atomically $ readTChan (threads c)
       case action of
-        CreateReminderChan guild register channelId -> do
+        CreateReminderChan guild channelId register -> do
           createReminderChan reminderThreads guild register
           atomically $ writeTChan (reminderChan c) (channelId, "Reminder created")
           loop reminderThreads
-        DeleteReminderChan guild ref channelId -> do
+        DeleteReminderChan guild channelId ref -> do
           deleteReminderChan reminderThreads guild ref
           atomically $ writeTChan (reminderChan c) (channelId, "Reminder deleted")
           loop reminderThreads
-        SetPermissionChan guild role channelId -> do
+        SetPermissionChan guild channelId role -> do
           setPermissionIO (conn c) guild role
           atomically $ writeTChan (reminderChan c) (channelId, "Role set")
           loop reminderThreads

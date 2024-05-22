@@ -98,7 +98,7 @@ reminder c = SlashCommand
                     allowed <- liftIO $ checkPermissionIO (conn c) guild (getRoles $ interactionUser intr)
                     if allowed
                     then do
-                      liftIO $ atomically $ writeTChan (threads c) $ CreateReminderChan guild register channelId
+                      liftIO $ atomically $ writeTChan (threads c) $ CreateReminderChan guild channelId register
                       sendMsg "Reminder is being registered"
                     else sendMsg "Invalid Permissions"
                   ListReminders -> do
@@ -115,7 +115,7 @@ reminder c = SlashCommand
                     allowed <- liftIO $ checkPermissionIO (conn c) guild (getRoles $ interactionUser intr)
                     if allowed
                     then do
-                      liftIO $ atomically $ writeTChan (threads c) $ DeleteReminderChan guild uuid channelId
+                      liftIO $ atomically $ writeTChan (threads c) $ DeleteReminderChan guild channelId uuid
                       sendMsg "Reminder is being deleted"
                     else sendMsg "Invalid Permissions"
                   SetRole role -> do
@@ -123,7 +123,7 @@ reminder c = SlashCommand
                     allowed <- liftIO $ checkPermissionIO (conn c) guild (getRoles $ interactionUser intr)
                     if allowed
                     then do
-                      liftIO $ atomically $ writeTChan (threads c) $ SetPermissionChan guild role channelId
+                      liftIO $ atomically $ writeTChan (threads c) $ SetPermissionChan guild channelId role
                       sendMsg "Role is being set"
                     else sendMsg "Invalid Permissions"
 

@@ -37,9 +37,9 @@ mkEnv fileEnv = Env
 
 data CreateDeleteReminder
   -- Include the guild and channel so we can send messages
-  = CreateReminderChan GuildId Register           ChannelId
-  | DeleteReminderChan GuildId (Either Text UUID) ChannelId
-  | SetPermissionChan  GuildId RoleId             ChannelId
+  = CreateReminderChan GuildId ChannelId Register
+  | DeleteReminderChan GuildId ChannelId (Either Text UUID)
+  | SetPermissionChan  GuildId ChannelId RoleId
   -- Actions for server startup and stop
   | InitialiseReminder
   | StopAll
