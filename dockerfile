@@ -1,5 +1,5 @@
 # Get all the deps built for both the exe and tests
-FROM haskell:9.8-buster AS build
+FROM haskell:9.6-bullseye AS build
 
 WORKDIR /opt/reminderbot
 
@@ -20,7 +20,7 @@ RUN cabal install --installdir=. --install-method=copy exe:ReminderBot
 RUN strip ReminderBot
 
 # What actually runs, no haskell compiler stuff
-FROM debian:buster AS reminderbot
+FROM debian:bullseye AS reminderbot
 
 # Copy everything we need from the build image into the running image
 COPY --from=build /opt/reminderbot/ReminderBot /opt/reminderbot/ReminderBot
