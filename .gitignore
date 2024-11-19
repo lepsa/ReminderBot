@@ -13,6 +13,7 @@ Setup
 dist/
 dist-newstyle/
 .ghc.environment.*
+*.tar
 # Profiling data
 *.prof
 # Logs

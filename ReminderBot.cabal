@@ -33,23 +33,23 @@ common warnings
     ghc-options: -Wall
 
 common depends
-    build-depends:    base ^>=4.19.1.0
-                    , discord-haskell
+    build-depends:    base >=4 && < 5
+                    , discord-haskell >= 1.17 && < 2
                     , text
-                    , sqlite-simple
+                    , sqlite-simple >= 0.4 && < 0.5
                     , mtl
                     , transformers
                     , containers
-                    , lens
-                    , aeson
+                    , lens >= 5 && < 6
+                    , aeson >= 2.2 && < 2.3
                     , bytestring
-                    , directory
-                    , filepath
-                    , time
-                    , uuid
-                    , scientific
+                    , directory >= 1.3 && < 1.4
+                    , filepath >= 1.4 && < 1.5
+                    , time >= 1 && < 2
+                    , uuid >= 1 && < 2
+                    , scientific >= 0.3 && < 0.4
                     , stm
-                    , unbounded-delays
+                    , unbounded-delays >= 0.1 && < 0.2
 
 library
     import:           warnings
@@ -79,9 +79,9 @@ executable ReminderBot
     -- other-modules:
     -- other-extensions:
     build-depends:
-        base ^>=4.19.1.0,
+        base >=4 && < 5,
         ReminderBot,
-        aeson
+        aeson >= 2.2 && < 2.3
 
     hs-source-dirs:   app
     default-language: GHC2021
@@ -96,5 +96,5 @@ test-suite ReminderBot-test
     hs-source-dirs:   test
     main-is:          Main.hs
     build-depends:
-        base ^>=4.19.1.0,
+        base >=4 && < 5,
         ReminderBot
